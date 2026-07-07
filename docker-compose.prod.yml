@@ -1,0 +1,170 @@
+# ==============================================================
+#  YOWYOB PAYMENT (dev) — PRODUCTION sur le serveur yowyob
+# ==============================================================
+#  Service de paiement INDÉPENDANT (Stripe, JWT propre) — aucun lien avec le kernel.
+#  Entièrement autonome : Postgres + Redis + Kafka en sidecars privés.
+#  Exposé par Traefik sur payment-dev.yowyob.com (réseau externe "yowyob").
+#  Secrets réels (Stripe live, mots de passe) : dans .env côté serveur (gitignoré).
+# ==============================================================
+services:
+
+  payment-service:
+    image: "${APP_IMAGE:?APP_IMAGE requis - ex ghcr.io/yowyob/payment-service-dev:main}"
+    container_name: payment-service-dev
+    pull_policy: always
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      APP_PORT: "8080"
+      APP_NAME: "yowyob-payment"
+      APP_ENV: "production"
+      # ── Postgres privé ──
+      DB_HOST: "payment-db"
+      DB_PORT: "5432"
+      DB_NAME: "yowyob_payment"
+      DB_USER: "yowyob"
+      DB_PASSWORD: "${PAYMENT_DB_PASSWORD:?PAYMENT_DB_PASSWORD requis dans .env}"
+      DB_POOL_MIN: "2"
+      DB_POOL_MAX: "10"
+      # ── JWT applicatif ──
+      JWT_SECRET: "${PAYMENT_JWT_SECRET:?PAYMENT_JWT_SECRET requis dans .env}"
+      JWT_EXPIRATION_MS: "86400000"
+      # ── Admin bootstrap ──
+      ADMIN_EMAIL: "${PAYMENT_ADMIN_EMAIL:-admin@yowyob.com}"
+      ADMIN_PASSWORD: "${PAYMENT_ADMIN_PASSWORD:?PAYMENT_ADMIN_PASSWORD requis dans .env}"
+      ADMIN_NAME: "ZUCHUON"
+      # ── Redis privé ──
+      REDIS_HOST: "payment-redis"
+      REDIS_PORT: "6379"
+      REDIS_TTL_SECONDS: "300"
+      # ── Kafka privé ──
+      KAFKA_BOOTSTRAP_SERVERS: "payment-kafka:9092"
+      KAFKA_TOPIC_TRANSACTION_EVENTS: "yowyob.transaction.events"
+      KAFKA_TOPIC_WALLET_EVENTS: "yowyob.wallet.events"
+      KAFKA_TOPIC_WALLET_CREATE: "wallet-create-topic"
+      KAFKA_GROUP_ID: "yowyob-payment-group"
+      # ── Frais ──
+      WITH_FEES: "false"
+      FEE_TYPE: "PERCENTAGE"
+      FEE_VALUE: "0.1"
+      FEE_CURRENCY: "XAF"
+      # ── Stripe (clés dans .env ; placeholders test par défaut) ──
+      STRIPE_PUBLISHABLE_KEY: "${STRIPE_PUBLISHABLE_KEY:-pk_test_placeholder}"
+      STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY:-sk_test_placeholder}"
+      STRIPE_WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET:-whsec_placeholder}"
+      STRIPE_SUCCESS_URL: "https://payment-dev.yowyob.com/api/v1/stripe/success"
+      STRIPE_CANCEL_URL: "https://payment-dev.yowyob.com/api/v1/stripe/cancel"
+      STRIPE_CURRENCY: "eur"
+      # ── Swagger ──
+      SWAGGER_TITLE: "Yowyob Payment API"
+      SWAGGER_DESCRIPTION: "API pour la gestion des paiements, wallets et transactions."
+      SWAGGER_VERSION: "1.0.0"
+      SWAGGER_SERVER_URL: "https://payment-dev.yowyob.com"
+      # ── Transaction ──
+      TRANSACTION_REFERENCE_PREFIX: "TXN"
+      MIN_TRANSACTION_AMOUNT: "100"
+      MAX_TRANSACTION_AMOUNT: "10000000"
+      MAX_WALLET_BALANCE: "50000000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health >/dev/null 2>&1 || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 90s
+    logging:
+      driver: "json-file"
+      options: { max-size: "50m", max-file: "5" }
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.payment-dev.rule=Host(`payment-dev.yowyob.com`)"
+      - "traefik.http.routers.payment-dev.entrypoints=websecure"
+      - "traefik.http.routers.payment-dev.tls=true"
+      - "traefik.http.routers.payment-dev.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.payment-dev.priority=100"
+      - "traefik.http.services.payment-dev.loadbalancer.server.port=8080"
+      - "traefik.docker.network=yowyob"
+    depends_on:
+      payment-db: { condition: service_healthy }
+      payment-redis: { condition: service_healthy }
+      payment-liquibase: { condition: service_completed_successfully }
+    networks: [yowyob, payment-net]
+
+  payment-db:
+    image: postgres:16-alpine
+    container_name: payment-dev-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "yowyob_payment"
+      POSTGRES_USER: "yowyob"
+      POSTGRES_PASSWORD: "${PAYMENT_DB_PASSWORD:?PAYMENT_DB_PASSWORD requis dans .env}"
+    volumes:
+      - payment-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yowyob -d yowyob_payment"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks: [payment-net]
+
+  # Migrations Liquibase (one-shot, comme le compose d'origine du repo).
+  payment-liquibase:
+    image: liquibase/liquibase:4.27
+    depends_on:
+      payment-db: { condition: service_healthy }
+    volumes:
+      - ./docker/liquibase/changelog:/liquibase/changelog
+    command: >
+      --url=jdbc:postgresql://payment-db:5432/yowyob_payment
+      --username=yowyob --password=${PAYMENT_DB_PASSWORD}
+      --changeLogFile=db.changelog-master.xml
+      --search-path=/liquibase/changelog update
+    restart: on-failure
+    networks: [payment-net]
+
+  payment-redis:
+    image: redis:7-alpine
+    container_name: payment-dev-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - payment-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [payment-net]
+
+  # Kafka mode KRaft (nœud unique, pas de zookeeper).
+  payment-kafka:
+    image: apache/kafka:3.7.0
+    container_name: payment-dev-kafka
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://payment-kafka:9092"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@payment-kafka:9093"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - payment-kafka-data:/var/lib/kafka/data
+    networks: [payment-net]
+
+volumes:
+  payment-db-data:
+  payment-redis-data:
+  payment-kafka-data:
+
+networks:
+  yowyob:
+    external: true
+    name: yowyob
+  payment-net:
+    name: payment-dev-net

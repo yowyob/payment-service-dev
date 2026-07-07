@@ -1,0 +1,45 @@
+name: Mirror from source
+
+# Synchronise le code depuis ALEMDJOU/payment-service@main vers ce dépôt (main),
+# en PRÉSERVANT les fichiers de déploiement propres à yowyob (.github, Dockerfile,
+# docker-compose.prod.yml). Un push sur main déclenche publish -> deploy.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: mirror-payment-service-dev
+  cancel-in-progress: true
+
+jobs:
+  mirror:
+    if: github.repository == 'yowyob/payment-service-dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      UPSTREAM: https://github.com/ALEMDJOU/payment-service.git
+      UPSTREAM_BRANCH: main
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Synchroniser depuis l'upstream (préserve fichiers de déploiement)
+        env:
+          # PAT : un push par GITHUB_TOKEN ne déclencherait PAS docker-publish.
+          MIRROR_PUSH_TOKEN: ${{ secrets.UPSTREAM_TOKEN }}
+        run: |
+          git config user.name "yowyob-mirror"
+          git config user.email "mirror@yowyob.local"
+          git remote add upstream "$UPSTREAM"
+          git fetch --quiet upstream "$UPSTREAM_BRANCH"
+          # Arbre = upstream, SAUF nos fichiers de déploiement.
+          git checkout upstream/"$UPSTREAM_BRANCH" -- . ':!.github' ':!Dockerfile' ':!docker-compose.prod.yml'
+          if git diff --cached --quiet; then
+            echo "Aucun changement upstream."; exit 0
+          fi
+          git commit -m "mirror: sync depuis ALEMDJOU/payment-service@${UPSTREAM_BRANCH}"
+          git push "https://x-access-token:${MIRROR_PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
