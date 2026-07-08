@@ -38,7 +38,7 @@ services:
       REDIS_PORT: "6379"
       REDIS_TTL_SECONDS: "300"
       # ── Kafka privé ──
-      KAFKA_BOOTSTRAP_SERVERS: "payment-kafka:9092"
+      KAFKA_BOOTSTRAP_SERVERS: "yowyob-shared-kafka:9092"
       KAFKA_TOPIC_TRANSACTION_EVENTS: "yowyob.transaction.events"
       KAFKA_TOPIC_WALLET_EVENTS: "yowyob.wallet.events"
       KAFKA_TOPIC_WALLET_CREATE: "wallet-create-topic"
@@ -136,31 +136,10 @@ services:
     networks: [payment-net]
 
   # Kafka mode KRaft (nœud unique, pas de zookeeper).
-  payment-kafka:
-    image: apache/kafka:3.7.0
-    container_name: payment-dev-kafka
-    restart: unless-stopped
-    environment:
-      KAFKA_NODE_ID: 1
-      KAFKA_PROCESS_ROLES: "broker,controller"
-      KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
-      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://payment-kafka:9092"
-      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
-      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@payment-kafka:9093"
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-    volumes:
-      - payment-kafka-data:/var/lib/kafka/data
-    networks: [payment-net]
 
 volumes:
   payment-db-data:
   payment-redis-data:
-  payment-kafka-data:
 
 networks:
   yowyob:
