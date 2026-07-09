@@ -17,7 +17,7 @@ services:
     environment:
       APP_PORT: "8080"
       APP_NAME: "yowyob-payment"
-      APP_ENV: "production"
+      APP_ENV: "${APP_ENV:-development}"
       # ── Postgres privé ──
       DB_HOST: "payment-db"
       DB_PORT: "5432"
@@ -26,6 +26,13 @@ services:
       DB_PASSWORD: "${PAYMENT_DB_PASSWORD:?PAYMENT_DB_PASSWORD requis dans .env}"
       DB_POOL_MIN: "2"
       DB_POOL_MAX: "10"
+      # ── Kernel / YowAuth ──
+      KERNEL_BASE_URL: "${KERNEL_BASE_URL:-https://kernel-core.yowyob.com}"
+      KERNEL_CLIENT_ID: "${KERNEL_CLIENT_ID:-payment-service-backend}"
+      KERNEL_API_KEY: "${KERNEL_API_KEY:?KERNEL_API_KEY requis dans .env}"
+      KERNEL_TENANT_ID: "${KERNEL_TENANT_ID:-11111111-1111-1111-1111-111111111111}"
+      KERNEL_ISSUER: "${KERNEL_ISSUER:-https://kernel-core.yowyob.com}"
+      PAYMENTS_ADMIN_PERMISSIONS: "${PAYMENTS_ADMIN_PERMISSIONS:-payments:admin}"
       # ── JWT applicatif ──
       JWT_SECRET: "${PAYMENT_JWT_SECRET:?PAYMENT_JWT_SECRET requis dans .env}"
       JWT_EXPIRATION_MS: "86400000"
@@ -43,6 +50,8 @@ services:
       KAFKA_TOPIC_WALLET_EVENTS: "yowyob.wallet.events"
       KAFKA_TOPIC_WALLET_CREATE: "wallet-create-topic"
       KAFKA_GROUP_ID: "yowyob-payment-group"
+      KAFKA_PORT: "9092"
+      ZOOKEEPER_PORT: "2181"
       # ── Frais ──
       WITH_FEES: "false"
       FEE_TYPE: "PERCENTAGE"
