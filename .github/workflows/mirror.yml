@@ -38,8 +38,11 @@ jobs:
           git config user.email "mirror@yowyob.local"
           git remote add upstream "${UPSTREAM/https:\/\/github.com\//https://x-access-token:${MIRROR_PUSH_TOKEN}@github.com/}"
           git fetch --quiet upstream "$UPSTREAM_BRANCH"
-          # Arbre = upstream, SAUF nos fichiers de déploiement.
+          # resync PROPRE : on retire d'abord tout le suivi (sauf fichiers yowyob)
+          # afin que les SUPPRESSIONS upstream soient propagées (sinon fichiers obsolètes).
+          git rm -r -q --ignore-unmatch . ':!.github' ':!Dockerfile' ':!docker-compose.prod.yml' || true
           git checkout upstream/"$UPSTREAM_BRANCH" -- . ':!.github' ':!Dockerfile' ':!docker-compose.prod.yml'
+          git add -A -- . ':!.github' ':!Dockerfile' ':!docker-compose.prod.yml'
           if git diff --cached --quiet; then
             echo "Aucun changement upstream."; exit 0
           fi
