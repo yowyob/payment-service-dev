@@ -88,3 +88,4 @@ management:
 logging:
   level:
     com.yowyob.payment: INFO
+# deploy-chain test 2026-07-10T17:04:00Z
