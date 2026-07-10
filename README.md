@@ -95,4 +95,3 @@ Le projet `payment-service/` (gateways MyCoolPay/PayPal/Kafka avancé) reste un 
 
 - Java 21, Spring Boot 3.2, WebFlux, R2DBC, Liquibase (Docker), Redis, Kafka, Stripe Checkout
 
-<!-- deploy-chain test 2026-07-10T17:01:53Z -->
