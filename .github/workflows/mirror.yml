@@ -42,9 +42,15 @@ jobs:
           # afin que les SUPPRESSIONS upstream soient propagées (sinon fichiers obsolètes).
           git rm -r -q --ignore-unmatch . ':!.github' ':!Dockerfile' ':!docker-compose.prod.yml' || true
           git checkout upstream/"$UPSTREAM_BRANCH" -- . ':!.github' ':!Dockerfile' ':!docker-compose.prod.yml'
+          # Trace explicite du commit source réellement synchronisé. Cela force un commit miroir
+          # même si l'upstream ne change que des fichiers préservés côté Yowyob.
+          mkdir -p .yowyob
+          git rev-parse upstream/"$UPSTREAM_BRANCH" > .yowyob/upstream-sha
           git add -A -- . ':!.github' ':!Dockerfile' ':!docker-compose.prod.yml'
+          git add .yowyob/upstream-sha
           if git diff --cached --quiet; then
             echo "Aucun changement upstream."; exit 0
           fi
-          git commit -m "mirror: sync depuis ALEMDJOU/payment-service@${UPSTREAM_BRANCH}"
+          UPSTREAM_SHA=$(cat .yowyob/upstream-sha)
+          git commit -m "mirror: sync depuis ALEMDJOU/payment-service@${UPSTREAM_BRANCH} (${UPSTREAM_SHA:0:7})"
           git push "https://x-access-token:${MIRROR_PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
